@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import toast from 'react-hot-toast'
 import { configuracaoService } from '../api/configuracao.js'
+import { extractApiError } from '../utils/apiError.js'
 import Spinner from '../components/common/Spinner.jsx'
 
 const UFs = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
@@ -46,7 +47,7 @@ export default function ConfiguracaoPage() {
                 const d = res.data.data
                 if (d) reset(d)
             })
-            .catch(() => toast.error('Erro ao carregar configurações'))
+            .catch((err) => toast.error(extractApiError(err, 'Erro ao carregar configuracoes')))
             .finally(() => setLoadingGet(false))
     }, [reset])
 
@@ -63,8 +64,7 @@ export default function ConfiguracaoPage() {
             })
             toast.success('Configurações salvas com sucesso!')
         } catch (err) {
-            const msg = err.response?.data?.message || err.response?.data?.error || 'Erro ao salvar'
-            toast.error(msg)
+            toast.error(extractApiError(err, 'Erro ao salvar configuracoes'))
         } finally {
             setLoading(false)
         }

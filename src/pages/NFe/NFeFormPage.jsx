@@ -1,27 +1,43 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
 import toast from 'react-hot-toast'
 import { nfeService } from '../../api/nfe.js'
+import { configuracaoService } from '../../api/configuracao.js'
+import { extractApiError, extractApiErrorInfo } from '../../utils/apiError.js'
 import Spinner from '../../components/common/Spinner.jsx'
 
 const defaultItem = {
     codigo: '',
     descricao: '',
+    ean: 'SEM GTIN',
     ncm: '',
     cfop: '',
     unidade: 'UN',
     quantidade: 1,
     valor_unitario: 0,
     valor_total: 0,
-    icms_cst: '00',
-    pis_cst: '07',
-    cofins_cst: '07',
+    cest: '',
+    cst_icms: '102',
+    aliq_icms: 0,
+    cst_pis: '07',
+    aliq_pis: 0,
+    cst_cofins: '07',
+    aliq_cofins: 0,
+    desconto: 0,
+}
+
+const UF_CODE = {
+    AC: 12, AL: 27, AP: 16, AM: 13, BA: 29, CE: 23, DF: 53, ES: 32, GO: 52,
+    MA: 21, MT: 51, MS: 50, MG: 31, PA: 15, PB: 25, PR: 41, PE: 26, PI: 22,
+    RJ: 33, RN: 24, RS: 43, RO: 11, RR: 14, SC: 42, SP: 35, SE: 28, TO: 17,
 }
 
 export default function NFeFormPage() {
     const navigate = useNavigate()
     const [loading, setLoading] = useState(false)
+    const [configuracao, setConfiguracao] = useState(null)
+    const [apiError, setApiError] = useState(null)
 
     const { register, handleSubmit, control, watch, setValue, formState: { errors } } = useForm({
         defaultValues: {
@@ -34,7 +50,15 @@ export default function NFeFormPage() {
             itens: [{ ...defaultItem }],
             dest_cpf_cnpj: '',
             dest_nome: '',
+            dest_ie: '',
             dest_email: '',
+            dest_logradouro: '',
+            dest_numero: '',
+            dest_bairro: '',
+            dest_municipio: '',
+            dest_uf: 'MS',
+            dest_cep: '',
+            dest_codigo_municipio: '',
             transp_modalidade: 9,
         },
     })
@@ -48,17 +72,66 @@ export default function NFeFormPage() {
         setValue(`itens.${index}.valor_total`, +(qtd * vunit).toFixed(2))
     }
 
+    useEffect(() => {
+        configuracaoService.buscar()
+            .then((res) => setConfiguracao(res.data?.data || null))
+            .catch(() => {
+                toast.error('Nao foi possivel carregar as configuracoes do emitente. Revise em Configuracoes.')
+            })
+    }, [])
+
     async function onSubmit(data) {
         setLoading(true)
+        setApiError(null)
         try {
+            const emitCnpj = (configuracao?.emit_cnpj || '').replace(/\D/g, '')
+            const emitUF = (configuracao?.uf || '').trim().toUpperCase() || 'MS'
+            const emitCodMunicipio = Number(configuracao?.emit_cod_municipio || 0)
+
+            if (!emitCnpj || !configuracao?.emit_nome || !configuracao?.emit_ie) {
+                toast.error('Complete os dados do emitente em Configuracoes antes de emitir a NF-e.')
+                return
+            }
+
+            const docDest = (data.dest_cpf_cnpj || '').replace(/\D/g, '')
+            const destinatario = {
+                cnpj: docDest.length === 14 ? docDest : '',
+                cpf: docDest.length === 11 ? docDest : '',
+                nome: data.dest_nome || '',
+                ie: data.dest_ie || '',
+                email: data.dest_email || '',
+                endereco: {
+                    logradouro: data.dest_logradouro || '',
+                    numero: data.dest_numero || 'SN',
+                    bairro: data.dest_bairro || '',
+                    municipio: data.dest_municipio || '',
+                    uf: (data.dest_uf || '').trim().toUpperCase() || emitUF,
+                    cep: (data.dest_cep || '').replace(/\D/g, ''),
+                    codigo_municipio: Number(data.dest_codigo_municipio || 0),
+                },
+            }
+
             const payload = {
+                cnpj_emitente: emitCnpj,
                 natureza_operacao: data.natureza_operacao,
                 serie: Number(data.serie),
                 ambiente: Number(data.ambiente),
-                emit_crt: Number(data.emit_crt),
-                dest_cpf_cnpj: data.dest_cpf_cnpj.replace(/\D/g, ''),
-                dest_nome: data.dest_nome,
-                dest_email: data.dest_email,
+                emit_razao_social: configuracao.emit_nome,
+                emit_nome_fantasia: configuracao.emit_nome,
+                emit_ie: configuracao.emit_ie,
+                emit_crt: Number(configuracao.emit_crt || data.emit_crt),
+                emit_cod_uf: UF_CODE[emitUF] || 50,
+                emit_cod_mun_ibge: emitCodMunicipio,
+                emit_endereco: {
+                    logradouro: configuracao.emit_endereco || '',
+                    numero: configuracao.emit_numero || 'SN',
+                    bairro: configuracao.emit_bairro || '',
+                    municipio: configuracao.emit_municipio || '',
+                    uf: emitUF,
+                    cep: (configuracao.emit_cep || '').replace(/\D/g, ''),
+                    codigo_municipio: emitCodMunicipio,
+                },
+                destinatario,
                 transp_modalidade: Number(data.transp_modalidade),
                 pagamentos: [{
                     forma: Number(data.forma_pagamento),
@@ -68,15 +141,21 @@ export default function NFeFormPage() {
                     numero: i + 1,
                     codigo: item.codigo,
                     descricao: item.descricao,
+                    ean: item.ean || 'SEM GTIN',
                     ncm: item.ncm,
                     cfop: item.cfop,
                     unidade: item.unidade,
                     quantidade: Number(item.quantidade),
                     valor_unitario: Number(item.valor_unitario),
                     valor_total: Number(item.valor_total),
-                    icms_cst: item.icms_cst,
-                    pis_cst: item.pis_cst,
-                    cofins_cst: item.cofins_cst,
+                    cest: item.cest || '',
+                    cst_icms: item.cst_icms,
+                    aliq_icms: Number(item.aliq_icms || 0),
+                    cst_pis: item.cst_pis,
+                    aliq_pis: Number(item.aliq_pis || 0),
+                    cst_cofins: item.cst_cofins,
+                    aliq_cofins: Number(item.aliq_cofins || 0),
+                    desconto: Number(item.desconto || 0),
                 })),
             }
 
@@ -85,8 +164,9 @@ export default function NFeFormPage() {
             toast.success(`NF-e emitida! Protocolo: ${d.protocolo}`)
             navigate('/nfe')
         } catch (err) {
-            const msg = err.response?.data?.message || err.response?.data?.error || 'Erro ao emitir NF-e'
+            const msg = extractApiError(err, 'Erro ao emitir NF-e')
             toast.error(msg)
+            setApiError(extractApiErrorInfo(err, 'Erro ao emitir NF-e'))
         } finally {
             setLoading(false)
         }
@@ -98,6 +178,22 @@ export default function NFeFormPage() {
                 <h2 className="text-xl font-bold text-gray-900">Emitir NF-e</h2>
                 <p className="text-gray-500 text-sm">Nota Fiscal Eletrônica — Modelo 55</p>
             </div>
+
+            {apiError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                    <h3 className="text-sm font-semibold text-red-800">Falha ao emitir NF-e</h3>
+                    <p className="mt-1 text-sm text-red-700">{apiError.message}</p>
+                    {apiError.status && (
+                        <p className="mt-2 text-xs text-red-700">Status HTTP: {apiError.status}</p>
+                    )}
+                    {apiError.raw && (
+                        <details className="mt-3">
+                            <summary className="cursor-pointer text-xs font-medium text-red-800">Ver retorno tecnico da API</summary>
+                            <pre className="mt-2 max-h-56 overflow-auto rounded bg-red-100 p-2 text-xs text-red-900">{apiError.raw}</pre>
+                        </details>
+                    )}
+                </div>
+            )}
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
 
@@ -194,14 +290,18 @@ export default function NFeFormPage() {
                                     <div>
                                         <label className="form-label">Qtd *</label>
                                         <input type="number" step="0.001" className="form-input"
-                                            {...register(`itens.${index}.quantidade`, { required: true })}
-                                            onChange={() => calcTotal(index)} />
+                                            {...register(`itens.${index}.quantidade`, {
+                                                required: true,
+                                                onChange: () => calcTotal(index),
+                                            })} />
                                     </div>
                                     <div>
                                         <label className="form-label">Vl. Unitário *</label>
                                         <input type="number" step="0.01" className="form-input"
-                                            {...register(`itens.${index}.valor_unitario`, { required: true })}
-                                            onChange={() => calcTotal(index)} />
+                                            {...register(`itens.${index}.valor_unitario`, {
+                                                required: true,
+                                                onChange: () => calcTotal(index),
+                                            })} />
                                     </div>
                                     <div>
                                         <label className="form-label">Vl. Total</label>
@@ -210,19 +310,58 @@ export default function NFeFormPage() {
                                     </div>
                                     <div>
                                         <label className="form-label">CST ICMS</label>
-                                        <input className="form-input" placeholder="00" {...register(`itens.${index}.icms_cst`)} />
+                                        <input className="form-input" placeholder="102" {...register(`itens.${index}.cst_icms`)} />
                                     </div>
                                     <div>
                                         <label className="form-label">CST PIS</label>
-                                        <input className="form-input" placeholder="07" {...register(`itens.${index}.pis_cst`)} />
+                                        <input className="form-input" placeholder="07" {...register(`itens.${index}.cst_pis`)} />
                                     </div>
                                     <div>
                                         <label className="form-label">CST COFINS</label>
-                                        <input className="form-input" placeholder="07" {...register(`itens.${index}.cofins_cst`)} />
+                                        <input className="form-input" placeholder="07" {...register(`itens.${index}.cst_cofins`)} />
                                     </div>
                                 </div>
                             </div>
                         ))}
+                    </div>
+                </div>
+
+                {/* Endereco do destinatario */}
+                <div className="card">
+                    <div className="card-header"><h3 className="font-semibold text-gray-900">Endereco do Destinatario</h3></div>
+                    <div className="card-body grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="form-label">Inscricao Estadual</label>
+                            <input className="form-input" {...register('dest_ie')} />
+                        </div>
+                        <div>
+                            <label className="form-label">UF</label>
+                            <input className="form-input" maxLength={2} {...register('dest_uf')} />
+                        </div>
+                        <div className="col-span-2">
+                            <label className="form-label">Logradouro</label>
+                            <input className="form-input" {...register('dest_logradouro')} />
+                        </div>
+                        <div>
+                            <label className="form-label">Numero</label>
+                            <input className="form-input" {...register('dest_numero')} />
+                        </div>
+                        <div>
+                            <label className="form-label">Bairro</label>
+                            <input className="form-input" {...register('dest_bairro')} />
+                        </div>
+                        <div>
+                            <label className="form-label">Municipio</label>
+                            <input className="form-input" {...register('dest_municipio')} />
+                        </div>
+                        <div>
+                            <label className="form-label">CEP</label>
+                            <input className="form-input" {...register('dest_cep')} />
+                        </div>
+                        <div>
+                            <label className="form-label">Codigo Municipio (IBGE)</label>
+                            <input className="form-input" {...register('dest_codigo_municipio')} />
+                        </div>
                     </div>
                 </div>
 

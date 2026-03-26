@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import toast from 'react-hot-toast'
@@ -7,30 +7,40 @@ import { PlusIcon, MagnifyingGlassIcon } from '../../components/Layout/Icons.jsx
 import Spinner from '../../components/common/Spinner.jsx'
 import Modal from '../../components/common/Modal.jsx'
 
+function formatDateTime(value) {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '-'
+    return new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+    }).format(date)
+}
+
+function downloadXML(chave) {
+    nfceService.obterXML(chave)
+        .then(res => {
+            const blob = new Blob([res.data], { type: 'application/xml' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url; a.download = `nfce-${chave}.xml`; a.click()
+            URL.revokeObjectURL(url)
+        })
+        .catch(() => toast.error('Erro ao baixar XML'))
+}
+
+function downloadDANFE(chave) {
+    nfceService.obterDANFE(chave)
+        .then(res => {
+            const url = URL.createObjectURL(res.data)
+            const a = document.createElement('a')
+            a.href = url; a.download = `danfce-${chave}.pdf`; a.click()
+            URL.revokeObjectURL(url)
+        })
+        .catch(() => toast.error('Erro ao baixar DANFCe'))
+}
+
 function ResultCard({ result, onClose }) {
-    function downloadXML(chave) {
-        nfceService.obterXML(chave)
-            .then(res => {
-                const blob = new Blob([res.data], { type: 'application/xml' })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url; a.download = `nfce-${chave}.xml`; a.click()
-                URL.revokeObjectURL(url)
-            })
-            .catch(() => toast.error('Erro ao baixar XML'))
-    }
-
-    function downloadDANFE(chave) {
-        nfceService.obterDANFE(chave)
-            .then(res => {
-                const url = URL.createObjectURL(res.data)
-                const a = document.createElement('a')
-                a.href = url; a.download = `danfce-${chave}.pdf`; a.click()
-                URL.revokeObjectURL(url)
-            })
-            .catch(() => toast.error('Erro ao baixar DANFCe'))
-    }
-
     return (
         <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -65,8 +75,26 @@ export default function NFCePage() {
     const [consultaModal, setConsultaModal] = useState(false)
     const [loadingConsulta, setLoadingConsulta] = useState(false)
     const [consultaResult, setConsultaResult] = useState(null)
+    const [historico, setHistorico] = useState([])
+    const [loadingHistorico, setLoadingHistorico] = useState(false)
 
     const { register, handleSubmit, formState: { errors } } = useForm()
+
+    async function carregarHistorico() {
+        setLoadingHistorico(true)
+        try {
+            const res = await nfceService.listar({ limit: 100 })
+            setHistorico(res.data?.data || [])
+        } catch {
+            toast.error('Erro ao carregar NFC-e emitidas')
+        } finally {
+            setLoadingHistorico(false)
+        }
+    }
+
+    useEffect(() => {
+        carregarHistorico()
+    }, [])
 
     async function onConsultar(data) {
         const chave = data.chave.trim()
@@ -141,6 +169,58 @@ export default function NFCePage() {
                         </div>
                     </div>
                 ))}
+            </div>
+
+            <div className="card">
+                <div className="card-header flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">NFC-e emitidas (servidor)</h3>
+                    <button
+                        type="button"
+                        onClick={carregarHistorico}
+                        className="btn-secondary text-xs"
+                    >
+                        Atualizar lista
+                    </button>
+                </div>
+                <div className="card-body">
+                    {loadingHistorico ? (
+                        <div className="py-3"><Spinner size="sm" /></div>
+                    ) : null}
+                    {historico.length === 0 ? (
+                        <p className="text-sm text-gray-500">Nenhuma NFC-e emitida foi encontrada para este usuário.</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+                                        <th className="py-2 pr-3">Chave</th>
+                                        <th className="py-2 pr-3">Protocolo</th>
+                                        <th className="py-2 pr-3">Emitida em</th>
+                                        <th className="py-2 pr-3">Situação</th>
+                                        <th className="py-2 pr-3">Acoes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {historico.map((item) => (
+                                        <tr key={item.chave} className="border-b border-gray-100 align-top">
+                                            <td className="py-2 pr-3 font-mono text-xs break-all max-w-[240px]">{item.chave}</td>
+                                            <td className="py-2 pr-3 font-mono text-xs">{item.protocolo || '-'}</td>
+                                            <td className="py-2 pr-3 text-xs">{formatDateTime(item.emitida_em)}</td>
+                                            <td className="py-2 pr-3 text-xs">{item.situacao || '-'}</td>
+                                            <td className="py-2 pr-3">
+                                                <div className="flex flex-wrap gap-2">
+                                                    <button onClick={() => downloadXML(item.chave)} className="btn-secondary text-xs">XML</button>
+                                                    <button onClick={() => downloadDANFE(item.chave)} className="btn-secondary text-xs">DANFCe PDF</button>
+                                                    <Link to={`/nfce/${item.chave}/cancelar`} className="btn-danger text-xs">Cancelar</Link>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
             </div>
 
             <Modal open={consultaModal} onClose={() => setConsultaModal(false)} title="Resultado da Consulta NFC-e">
