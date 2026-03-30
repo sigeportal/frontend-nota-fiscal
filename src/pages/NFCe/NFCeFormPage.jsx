@@ -12,7 +12,7 @@ const defaultItem = {
     descricao: '',
     ean: 'SEM GTIN',
     ncm: '',
-    cfop: '5102',
+    cfop: '5405',
     unidade: 'UN',
     quantidade: 1,
     valor_unitario: 0,

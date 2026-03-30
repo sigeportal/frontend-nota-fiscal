@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import toast from 'react-hot-toast'
 import { sefazService } from '../api/sefaz.js'
+import { configuracaoService } from '../api/configuracao.js'
+import { extractApiError } from '../utils/apiError.js'
 import Spinner from '../components/common/Spinner.jsx'
 
 const UFs = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
@@ -16,12 +18,13 @@ export default function SefazPage() {
     const [statusResult, setStatusResult] = useState(null)
     const [loadingStatus, setLoadingStatus] = useState(false)
     const [loadingInut, setLoadingInut] = useState(false)
+    const [cnpjConfigurado, setCnpjConfigurado] = useState('')
 
     const { register: regStatus, handleSubmit: handleStatus } = useForm({
-        defaultValues: { uf: 'SP', modelo: 55 },
+        defaultValues: { uf: 'MS', modelo: 55 },
     })
 
-    const { register: regInut, handleSubmit: handleInut, reset: resetInut, watch, formState: { errors: errInut } } = useForm({
+    const { register: regInut, handleSubmit: handleInut, reset: resetInut, setValue: setValueInut, watch, formState: { errors: errInut } } = useForm({
         defaultValues: {
             cnpj: '',
             serie: '1',
@@ -33,6 +36,34 @@ export default function SefazPage() {
     })
 
     const justInut = watch('justificativa', '')
+
+    useEffect(() => {
+        let ativo = true
+
+        async function carregarConfiguracao() {
+            try {
+                const res = await configuracaoService.buscar()
+                const emitCnpj = (res.data?.data?.emit_cnpj || '').replace(/\D/g, '')
+
+                if (!ativo || !emitCnpj) {
+                    return
+                }
+
+                setCnpjConfigurado(emitCnpj)
+                setValueInut('cnpj', emitCnpj)
+            } catch (err) {
+                if (ativo) {
+                    toast.error(extractApiError(err, 'Erro ao carregar configuracoes para inutilizacao'))
+                }
+            }
+        }
+
+        carregarConfiguracao()
+
+        return () => {
+            ativo = false
+        }
+    }, [setValueInut])
 
     async function onStatus(data) {
         setLoadingStatus(true)
@@ -55,17 +86,23 @@ export default function SefazPage() {
         try {
             await sefazService.inutilizar({
                 cnpj: data.cnpj.replace(/\D/g, ''),
-                serie: data.serie,
+                justificativa: data.justificativa.trim(),
+                serie: String(data.serie).trim(),
                 nn_ini: Number(data.nn_ini),
                 nn_fin: Number(data.nn_fin),
                 modelo: Number(data.modelo),
-                justificativa: data.justificativa,
             })
             toast.success('Inutilização realizada com sucesso!')
-            resetInut()
+            resetInut({
+                cnpj: cnpjConfigurado,
+                serie: '1',
+                nn_ini: 1,
+                nn_fin: 1,
+                modelo: 55,
+                justificativa: '',
+            })
         } catch (err) {
-            const msg = err.response?.data?.message || err.response?.data?.error || 'Erro ao inutilizar'
-            toast.error(msg)
+            toast.error(extractApiError(err, 'Erro ao inutilizar'))
         } finally {
             setLoadingInut(false)
         }
@@ -143,6 +180,7 @@ export default function SefazPage() {
                                         required: 'CNPJ obrigatório',
                                         validate: v => v.replace(/\D/g, '').length === 14 || 'CNPJ inválido',
                                     })} />
+                                {cnpjConfigurado ? <p className="text-xs text-gray-500 mt-1">CNPJ preenchido a partir das configurações do emitente.</p> : null}
                                 {errInut.cnpj && <p className="form-error">{errInut.cnpj.message}</p>}
                             </div>
                             <div>

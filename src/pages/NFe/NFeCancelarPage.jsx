@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import toast from 'react-hot-toast'
 import { nfeService } from '../../api/nfe.js'
@@ -8,10 +8,54 @@ import Spinner from '../../components/common/Spinner.jsx'
 export default function NFeCancelarPage() {
     const { chave } = useParams()
     const navigate = useNavigate()
+    const location = useLocation()
+    const nota = location.state?.nota
     const [loading, setLoading] = useState(false)
+    const [loadingNota, setLoadingNota] = useState(false)
 
-    const { register, handleSubmit, watch, formState: { errors } } = useForm()
+    const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm({
+        defaultValues: {
+            protocolo: nota?.protocolo || '',
+            justificativa: '',
+        },
+    })
     const justificativa = watch('justificativa', '')
+    const protocolo = watch('protocolo', '')
+
+    useEffect(() => {
+        if (nota?.protocolo) {
+            setValue('protocolo', nota.protocolo)
+            return
+        }
+
+        let ativo = true
+
+        async function carregarNota() {
+            setLoadingNota(true)
+            try {
+                const res = await nfeService.consultar(chave)
+                const protocoloAtual = res.data?.data?.protocolo || ''
+
+                if (ativo && protocoloAtual) {
+                    setValue('protocolo', protocoloAtual)
+                }
+            } catch {
+                if (ativo) {
+                    toast.error('Nao foi possivel carregar o protocolo automaticamente')
+                }
+            } finally {
+                if (ativo) {
+                    setLoadingNota(false)
+                }
+            }
+        }
+
+        carregarNota()
+
+        return () => {
+            ativo = false
+        }
+    }, [chave, nota?.protocolo, setValue])
 
     async function onSubmit(data) {
         setLoading(true)
@@ -50,9 +94,11 @@ export default function NFeCancelarPage() {
                             <label className="form-label">Protocolo de Autorização *</label>
                             <input
                                 className="form-input font-mono"
-                                placeholder="Número do protocolo"
+                                placeholder={loadingNota ? 'Carregando protocolo...' : 'Número do protocolo'}
+                                readOnly={Boolean(protocolo)}
                                 {...register('protocolo', { required: 'Protocolo obrigatório' })}
                             />
+                            {protocolo ? <p className="text-xs text-gray-500 mt-1">Protocolo preenchido automaticamente a partir da nota selecionada.</p> : null}
                             {errors.protocolo && <p className="form-error">{errors.protocolo.message}</p>}
                         </div>
 

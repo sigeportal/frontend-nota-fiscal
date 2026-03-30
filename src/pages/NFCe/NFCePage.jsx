@@ -64,7 +64,7 @@ function ResultCard({ result, onClose }) {
             <div className="flex gap-2 flex-wrap">
                 <button onClick={() => downloadXML(result.chave)} className="btn-secondary text-xs">⬇ XML</button>
                 <button onClick={() => downloadDANFE(result.chave)} className="btn-secondary text-xs">⬇ DANFCe PDF</button>
-                <Link to={`/nfce/${result.chave}/cancelar`} className="btn-danger text-xs">Cancelar NFC-e</Link>
+                <Link to={`/nfce/${result.chave}/cancelar`} state={{ nota: result }} className="btn-danger text-xs">Cancelar NFC-e</Link>
                 <button onClick={onClose} className="btn-secondary text-xs ml-auto">Fechar</button>
             </div>
         </div>
@@ -211,7 +211,7 @@ export default function NFCePage() {
                                                 <div className="flex flex-wrap gap-2">
                                                     <button onClick={() => downloadXML(item.chave)} className="btn-secondary text-xs">XML</button>
                                                     <button onClick={() => downloadDANFE(item.chave)} className="btn-secondary text-xs">DANFCe PDF</button>
-                                                    <Link to={`/nfce/${item.chave}/cancelar`} className="btn-danger text-xs">Cancelar</Link>
+                                                    <Link to={`/nfce/${item.chave}/cancelar`} state={{ nota: item }} className="btn-danger text-xs">Cancelar</Link>
                                                 </div>
                                             </td>
                                         </tr>
